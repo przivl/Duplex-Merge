@@ -1,20 +1,17 @@
-# Replace POOLNAME and create the directories before installing.
+# Replace GITHUBUSER, POOLNAME and the Paperless consume path.
+# The ghcr.io package must be public or TrueNAS must have registry credentials.
 services:
   duplex-merge:
-    image: python:3.12-slim
+    image: ghcr.io/GITHUBUSER/duplex-merge:latest
     restart: unless-stopped
-    working_dir: /opt/duplex
     environment:
       TZ: Europe/Berlin
       POLL_SECONDS: '5'
       MIN_AGE_SECONDS: '15'
       REVERSE_BACK: 'true'
-      PIP_DISABLE_PIP_VERSION_CHECK: '1'
     volumes:
-      - /mnt/POOLNAME/Apps/DuplexMerge/app.py:/opt/duplex/app.py:ro
       - /mnt/POOLNAME/Apps/DuplexMerge/front:/data/front
       - /mnt/POOLNAME/Apps/DuplexMerge/back:/data/back
       - /mnt/POOLNAME/Apps/DuplexMerge/archive:/data/archive
       - /mnt/POOLNAME/Apps/DuplexMerge/error:/data/error
       - /mnt/POOLNAME/Apps/Paperless/Consume:/data/output
-    command: ["sh", "-c", "pip install --no-cache-dir 'pypdf>=5,<8' && exec python -u /opt/duplex/app.py"]

@@ -1,39 +1,40 @@
-# Duplex Merge – Custom App für TrueNAS SCALE
+# Duplex Merge – fertiges Docker-Image für TrueNAS SCALE
 
-Eine einfache, eigenständige **TrueNAS Custom App** zum Zusammenführen von zwei einseitigen Scan-Durchgängen eines Brother MFC-J5340DWE. Die fertige PDF-Datei wird in den Consume-Ordner von Paperless-ngx geschrieben.
+Die App verbindet manuelle Duplex-Scans: `front/` und `back/` als PDFs eingeben, fertig zusammengeführte PDFs an Paperless-ngx `consume/` ausgeben. Originale werden im Archiv behalten. **Ein Dokument zurzeit**.
 
-## Ablauf
+## Image auf GHCR veröffentlichen (einmalig)
 
-1. Vorderseiten eines Dokuments mit dem Brother-SMB-Profil `Duplex Vorderseiten` in `front/` scannen.
-2. Stapel umdrehen und die Rückseiten mit `Duplex Rückseiten` in `back/` scannen.
-3. Die App wartet mindestens 15 Sekunden nach dem letzten Dateischreibvorgang, prüft die PDF-Seitenzahlen, kehrt bei Bedarf die Reihenfolge der Rückseiten um und erzeugt eine PDF in Paperless `Consume`.
-4. Beide Originaldateien werden nach erfolgreicher Prüfung in `archive/` aufbewahrt.
+Ein `docker pull` funktioniert erst, wenn ein Image in einer Registry veröffentlicht wurde. Dieses Paket enthält den kompletten Build samt GitHub-Actions-Workflow.
 
-**Wichtig:** Immer nur EIN Dokument gleichzeitig bearbeiten. Unterschiedliche Scan-Jobs lassen sich ohne eine gemeinsame Job-ID nicht zuverlässig automatisch zuordnen. `front/` und `back/` müssen vor Beginn eines neuen Dokumentes leer sein. Paperless kann die fertige Datei recht schnell aus dem Consume-Ordner abholen.
+1. Auf GitHub ein neues **öffentliches** Repository namens `duplex-merge` erstellen (ohne README initialisieren).
+2. Den **Inhalt dieses ZIP-Archivs** im Repository auf den Branch `main` hochladen. Wichtig: `.github/workflows/publish.yml` muss mit hochgeladen werden (verstecktes Verzeichnis). Alternativ mit Git committen und pushen.
+3. In GitHub unter **Actions → Publish Docker image to GHCR** nachsehen; bei Bedarf **Run workflow** starten. In Repository-Einstellungen ggf. Actions-Schreibrechte für Pakete zulassen.
+4. Das veröffentlichte Paket unter **Packages** auf **Public** stellen, falls es zunächst privat ist; sonst benötigt TrueNAS Registry-Zugangsdaten.
+5. Image-Name: `ghcr.io/DEIN_GITHUB_NUTZERNAME/duplex-merge:latest` (Benutzername kleingeschrieben).
 
-## Installation
+Das Image enthält Python und pypdf. Bei jedem Container-Start werden **keine** Pakete neu heruntergeladen, nur das Image wird beim ersten Start gezogen.
 
-1. Bestehende tatsächliche Dataset-Pfade überprüfen; `/mnt/POOLNAME/Apps/Paperless/Consume` ist nur ein Beispiel.
-2. Im TrueNAS-Dataset folgende Verzeichnisse anlegen: `Apps/DuplexMerge/{front,back,archive,error}`. Die beiden SMB-Ziele sollen in `front` und `back` schreiben dürfen. App muss in allen Verzeichnissen lesen/schreiben dürfen.
-3. `app.py` nach `/mnt/POOLNAME/Apps/DuplexMerge/app.py` kopieren. Am besten aus der TrueNAS-Shell oder per SMB in einen zugänglichen Admin-Ordner und dann verschieben.
-4. `compose.yaml` öffnen und alle `POOLNAME`-Platzhalter ersetzen. Besonders wichtig: Paperless Consume **tatsächlich** verwendeten Host-Pfad kontrollieren. Die Consume-Freigabe darf nicht nochmals als Eingabequelle dienen.
-5. TrueNAS: **Apps → Discover → ⋮ → Install via YAML**. App-Name `duplex-merge`, YAML einfügen, speichern.
-6. Am Brother zwei SMB-Profile erstellen, die in die beiden Ordner schreiben. Einseitiger ADF-Scan, PDF, 300 dpi.
-7. Probe: zwei beidseitig bedruckte Blätter jeweils einseitig scannen. Das Ergebnis sollte genau vier Seiten mit richtiger Reihenfolge enthalten.
+## TrueNAS SCALE
 
-## Einstellungen
+1. Die Ordner `front`, `back`, `archive`, `error` in `/mnt/POOLNAME/Apps/DuplexMerge/` anlegen. Den tatsächlichen Paperless-Consume-Pfad überprüfen. Auf TrueNAS muss die App auf diese Pfade zugreifen können; SMB-Schreibrechte für den Brother auf `front` und `back` vergeben.
+2. Apps → Discover → **Install via YAML**; `compose.yaml` einfügen. `GITHUBUSER` (lowercase) und `POOLNAME` durch echte Werte ersetzen, sowie den Consume-Pfad, wenn er anders lautet.
+3. Zwei Brother-SMB-Scanprofile erstellen: Front-PDF nach `front/` und Back-PDF nach `back/`. PDF, ADF, 300 dpi.
+4. Mit zwei beidseitig bedruckten Blättern testen. Es sollte ein vierseitiges PDF in Paperless erscheinen.
 
-- `REVERSE_BACK=true`: Rückseitenfolge umkehren. Das hängt davon ab, wie der Stapel beim zweiten Durchlauf eingelegt wird. Falls das Test-PDF die falsche Reihenfolge hat, `false` probieren.
-- `MIN_AGE_SECONDS=15`: Verzögerung, damit noch laufende SMB-Dateiübertragungen nicht sofort verarbeitet werden. Bei großen Dokumenten erhöhen.
-- `POLL_SECONDS=5`: Prüfrhythmus.
-- In `compose.yaml` wird `pypdf` beim Containerstart geladen; dafür braucht die App beim Start Internet. Später kann man ein eigenes versioniertes Docker-Image (z. B. über Forgejo CI) bauen, das das Paket bereits enthält.
+### Optionen
 
-## Fehler und Grenzen
+- `REVERSE_BACK=true`: Reihenfolge der rückseitigen Seiten umkehren; je nach Einlegeart `false` nötig.
+- `MIN_AGE_SECONDS=15`: Dateien erst nach einer Ruhezeit bearbeiten.
+- `POLL_SECONDS=5`: Intervall zur Prüfung.
 
-- Bei ungleichen Seitenzahlen/kaputten PDFs: Logmeldung, Originale bleiben in `front/` und `back/`, bis der Fehler behoben wird. Nach einem Fehlschlag erfolgt ein neuer Versuch etwa jede Minute.
-- Standardannahme: gerade Anzahl der Originalseiten; bei einseitiger letzter Seite eine leere Rückseite mitscannen oder nachbearbeiten.
-- Die Zuordnung geschieht in der Reihenfolge des Dateieingangs. Daher keine parallelen Dokumente scannen.
-- Die App hat bewusst keine Weboberfläche und keine offenen Netzwerkports.
-- `error/` ist für eine mögliche spätere Quarantänefunktion reserviert; die erste Version verschiebt fehlerhafte Eingaben nicht automatisch.
-- Dateisystemberechtigungen und SMB-ACLs müssen auf deinem TrueNAS passend konfiguriert sein. Prüfe Logs bei `Permission denied`.
-- Stand: vorbereitetes Paket; **noch nicht auf deinem TrueNAS installiert oder getestet**.
+**Sicherheit & Grenzen:** Nur ein Dokument gleichzeitig; Vorder- und Rückseiten werden zeitlich zugeordnet, nicht durch Job-ID. Die App prüft, dass die PDFs gleich viele Seiten haben. Bei Fehlern bleiben Originale liegen und es wird erneut versucht. Für Dokumente mit ungerader Blattseitenzahl muss ggf. eine leere Rückseite erfasst werden. Keine Netzwerkports. Keine Weboberfläche. Bisher nicht live auf TrueNAS getestet.
+
+## Optional: lokal bauen und pushen
+
+```bash
+docker build -t ghcr.io/DEIN_GITHUB_NUTZERNAME/duplex-merge:latest .
+docker login ghcr.io
+docker push ghcr.io/DEIN_GITHUB_NUTZERNAME/duplex-merge:latest
+```
+
+Ein lokal gebautes `.tar`-Archiv wäre **kein** `docker pull`: Es müsste mit `docker load` importiert werden. Für 'nur Image Pull' ist GHCR die passende Variante.
